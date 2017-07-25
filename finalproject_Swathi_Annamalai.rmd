@@ -1,0 +1,459 @@
+---
+title: "final_SwathiAnnamalai"
+author: "Swathi Annamalai"
+date: "4/22/2017"
+output: html_document
+Project: Analysing Real Estate Data from publicly available Zillow dataset 
+Concepts Applied: EDA, Linear Modeling and Plotly for graphical analysis
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '~/Documents/Study/R_Coding')
+```
+I. EDA:
+Here I analyzed Real Estate Data of USA to explore historical housing prices by state. 
+Load Libraries needed for the project
+```{r}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(zoo)
+library(gridExtra)
+library(scales)
+library(directlabels)
+library(zipcode)
+```
+
+Importing BuyerSellerIndex data at City Level into city_buyersellerindex dataframe
+```{r}
+city_buyersellerindex <- read_csv('City_BuyerSellerIndex.csv')
+glimpse(city_buyersellerindex)
+```
+Checking to see unique values RegionType column 
+
+```{r}
+unique(city_buyersellerindex$RegionType)
+```
+Since it has only one value "city" in RegionType column, we can discard the column
+```{r}
+city_buyersellerindex <- select(city_buyersellerindex, -RegionType)
+```
+Creating California df for CA data only - Filter for CA data 
+```{r}
+california <- filter(city_buyersellerindex, State == 'CA')
+glimpse(california)
+```
+Creating NEW YORK df for NY data only - Filter for NY data 
+```{r}
+newyork <- filter(city_buyersellerindex, State == 'NY')
+glimpse(newyork)
+```
+Geometric Line Plot to Analyze PCT Price Cut vs Days On Market for California and NY markets
+From the graph it is seen that New York markets are probably slower and less demanding compared to California. The houses in California are on the market for lesser days compared to New York houses on market. 
+For New York, we also see if the Percentage of Price Cut is lower, more number of days is the house on market. When the Pct Price cut increases, the houses are sold faster - this is a trend of NY market. Comparatively, California is not much affected by price cut. It does not show any linear or non-linear relation between DaysOnMarket and PercentagePriceCut.
+```{r}
+ggplot() + geom_line(data = california, aes(x=PctPriceCut, y= DaysOnMarket,color = "California")) +
+geom_line(data = newyork, aes(x=PctPriceCut, y=DaysOnMarket,color = "New York")) + xlab('Percentage Price Cut') +
+ylab('Days on Market') + labs(color='Legend') + ylim(0,290)
+```
+Summary of dataset - city_buyersellerindex - Across States in the USA
+```{r}
+summary(city_buyersellerindex)
+```
+Creating Bar Graph for "Buyer-Seller Index" against each of the states 
+# Buyer-Seller Index Metrics - how to measure? 
+# Higher Index = 10.0 - Buyers Market
+# Lower Index = 0.0 - Sellers Market
+It is seen from the graph below, states of CA,GA,IN, MD, OH and TN have highest buyer seller index. These states display Buyer's market trend. NC,WA and IL display a lower Buyer Seller Index - indicating such states display a Sellers Market.
+```{r}
+ggplot(city_buyersellerindex, aes(x= State, y= BuyerSellerIndex, fill = State)) + geom_bar(stat = "identity") + ylim(0,10)
+```
+Creating Bar Graph for "Days On Market" against each of the states 
+```{r}
+ggplot(city_buyersellerindex, aes(x= State, y= BuyerSellerIndex, fill = DaysOnMarket)) + geom_bar(stat = "identity") + ylim(0,400)
+```
+The geometric point plot below displays aggregate of BuyerSeller Index for each region across the dataset in each of the 52 states. It shows a evenly spread out distribution in states of CA, CT, FL, MA, OH, PA, WA
+
+```{r}
+ggplot(city_buyersellerindex, aes(x= State, y= BuyerSellerIndex, color = State)) + geom_count()
+```
+Compare Buyer_Seller_Index across States - arrange from highest to lowest
+IN has highest and DE has the lowest buyer seller index. Also shows a descending disribution.
+```{r}
+data <- city_buyersellerindex %>% group_by(State) %>% summarise(buyersellerindex = mean(BuyerSellerIndex))
+ggplot(data=data, aes(x= reorder(State, -buyersellerindex), y=buyersellerindex, fill = State)) + geom_bar(stat = "identity")
+```
+Importing City_MedianListingPrice - main dataset for house listing price
+Importing City_MedianSoldPrice - main dataset for house sold price
+Importing Market Health Index data for further analysis
+```{r}
+city_medianlisting <- read.csv('City_MedianListingPrice_AllHomes.csv')
+head(city_medianlisting)
+city_mediansold <- read.csv('City_MedianSoldPrice_AllHomes.csv')
+head(city_mediansold)
+city_markethealthindex <- read_csv('City_MarketHealthIndex.csv')
+glimpse(city_markethealthindex)
+```
+Distribution of State in Dataset - CA has the highest median city listing
+```{r}
+ggplot(city_medianlisting, aes(x=State, color = State)) + geom_bar(width = 0.5)
+```
+Reshape dataframe, Rename and Convert Date format for Median Listing and Median Sold Datasets
+```{r}
+medianlisting <- gather(city_medianlisting, monthyear, price, X2010.01:X2017.02)
+colnames(medianlisting)[2] <- "state"
+medianlisting$monthyear <- as.Date(as.yearmon(medianlisting$monthyear, "X%Y.%m"))
+str(medianlisting)
+mediansold <- gather(city_mediansold, monthyear, price, X1996.04:X2016.06)
+colnames(mediansold)[3] <- "state"
+mediansold$monthyear <- as.Date(as.yearmon(mediansold$monthyear, "X%Y.%m"))
+str(mediansold)
+```
+# This date set contains the following features: RegionName, state, Metro, CountyName, monthyear, and price. 
+# The features of interest in this project are state, Metro, monthyear, and price.
+# Plot Boxplots side by side
+```{r}
+box1 <- ggplot(data = mediansold, aes(x=1, y=price)) +
+  geom_boxplot() +
+  labs(y = "Median Sold Price", 
+       title = "Original Data") +
+  scale_x_continuous(breaks=NULL) +
+  theme(text = element_text(size=9),
+        axis.title.x = element_blank())
+```
+# The Median Sold Price for all houses data contains lot of outliers as seen in the box plot above. 
+# Remove outliers and include only prices that are within 95% of median price value. 
+#function to remove outlier - getting rid of NAs/ Missing values in dataset
+#(including prices that are within the 95 % range)
+```{r}
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.5, .95), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+```
+```{r}
+box2 <- ggplot(data = mediansold, aes(x=1, y=remove_outliers(price))) +
+  labs(y = "Median Sold Price", 
+       title = "Remove outliers not within 95 % of MedianValue") +
+  geom_boxplot() +
+  scale_x_continuous(breaks=NULL) +
+  theme(text = element_text(size=9),
+        axis.title.x = element_blank())
+grid.arrange(box1, box2, ncol=2)
+```
+New data sets after removing outliers:
+```{r}
+mediansold_noOutlier <- subset(mediansold, price == remove_outliers(price), !is.na(price))
+medianlisting_noOutlieer <- subset(medianlisting, price == remove_outliers(price), !is.na(price))
+```
+Get the median house sold price between 2008 and 2012
+```{r}
+mediansold.2012 <- subset(mediansold_noOutlier, monthyear >= "2008-01-01" & 
+                     monthyear <= "2012-12-31" & 
+                     !is.na(price), !is.na(state)) %>%
+  group_by(state) %>%
+  summarise(median_sold_price = median(as.numeric(price)),
+            n=n())
+glimpse(mediansold.2012)
+nrow(mediansold.2012)
+```
+#datebreak and datelimit for the plots
+```{r}
+datebreaks <- seq(as.Date("1995-01-01"), as.Date("2015-01-01"), by="12 month")
+datelimits <- c(as.Date("1995-01-01"), as.Date("2015-01-01"))
+```
+Bar Chart for time distribution of the dataset.
+The house data was recorded between 1996 and 2015. The maximal count of data was accumulated between 2004 and 2006.
+```{r}
+p1 <- ggplot(aes(x = monthyear), data = mediansold_noOutlier)+ 
+  geom_bar(colour="black", fill="blue",  
+           stat="bin", alpha = .5) + 
+  labs(x= "year", y = "count",
+       title = "Distribution of Time in the Data Set") +
+  scale_x_date(breaks = datebreaks, 
+               limits = datelimits, 
+               labels = date_format("%Y")) + 
+  theme(text = element_text(size = 11),
+        axis.text.x = element_text(angle = 30, hjust = 1)) 
+p1
+```
+Bar Chart for the distribution of state data set. Shows that the count of data for each state has positively skewed decreasing order of distribution.CA has the highest number of data points and ME has the lowest instances.
+```{r}
+p2 <-  ggplot(aes(x=reorder(state, state, function(x) - length(x)),
+                  fill = state), data = subset(mediansold_noOutlier, !is.na(state))) + 
+  geom_bar(colour="black") + 
+  labs(x= " ", y = "count",
+       title = "Distribution of state in the data set") +
+  theme(text = element_text(size = 11),
+        legend.title = element_blank())
+p2
+```
+Comparison of sold house price and listed house price in USA (2009-2014).
+The goal here is to see how the listed house price different from the sold house price. 
+Using Subsets of Data for 2009-2014:
+The sold house price is on average slightly lower than the listed house price between 2009 and 2014.
+```{r}
+mediansold.price <- subset(mediansold_noOutlier, monthyear>= "2009-01-01" & 
+                       monthyear <= "2014-12-31" & 
+                       !is.na(price), 
+                     select = c(RegionName, state, 
+                                Metro, monthyear, price))
+medianlisting.price <- subset(medianlisting_noOutlieer, monthyear>= "2009-01-01" & 
+                       monthyear <= "2014-12-31" & 
+                       !is.na(price), 
+                     select = c(RegionName, state, 
+                                Metro, monthyear, price))
+
+with(mediansold.price, summary(price))
+with(medianlisting.price, summary(price))
+```
+Compare the median listed price vs. median sold price with time. Combine two dataframes into a new dataframe.
+```{r}
+mediansold.price$col <- 'Median Sold Price'
+medianlisting.price$col <- 'Median Listing Price'
+median_soldlisting <- rbind(mediansold.price, medianlisting.price)
+```
+
+Plot Median Listed VS Sold Price 
+# Again, the median Listing price is overall higher than the median Sold price between 2010 and 2015. 
+# The minimal sold price occurred in January 2012. Since than, the sold price drastically raises to about 30 %.
+
+```{r}
+datebreaks <- seq(as.Date("2009-01-01"), as.Date("2015-02-01"), 
+                  by="6 month")
+
+p <- ggplot(aes(x = monthyear, y = price), data = median_soldlisting) +
+  geom_line(aes(color = col), stat='summary', fun.y =median) +
+  labs(y="Median Price", 
+       title='Median Price for homes in USA (2009-2014)',
+       color=" " ) +
+  scale_x_date(breaks=datebreaks, labels=date_format("%m-%Y")) +
+  theme(text = element_text(size=11),
+        axis.text.x = element_text(angle=30, hjust=1), 
+        legend.position="bottom", 
+        axis.title.x = element_blank())
+direct.label(p, list(last.points, cex=1, hjust = 1, vjust = 7.5))
+p
+```
+The 5 most expensive and less expensive homes sold in 2010-2012
+```{r}
+mediansold.2012 <- subset(mediansold_noOutlier,monthyear>= "2008-01-01" &
+                      monthyear <= "2012-12-31" &
+                      !is.na(price), 
+                    select = c(RegionName, state, Metro, monthyear, price))
+
+exp <- head(mediansold.2012[order(mediansold.2012$price, decreasing = T),],5)
+```
+The 5 cheapest homes sold in 2008-2012
+```{r}
+exp <- head(mediansold.2012[order(mediansold.2012$price, decreasing = T),],5)
+cheap <- head(mediansold.2012[order(mediansold.2012$price, decreasing = F),],5)
+View(exp)
+View(cheap)
+```
+Comparison of house sold price in Select Cities (2000-2014)
+```{r}
+mediansold.Nation <- subset(mediansold_noOutlier, select = c(monthyear, price))
+```
+Make a new dataframe for city subgroup
+```{r}
+mediansold.cities <- subset(mediansold_noOutlier, 
+                     Metro == "New York" | Metro == "Boston" | 
+                       Metro == "Los Angeles" | Metro == "Chicago"| 
+                       Metro == "San Francisco"  &  !is.na(price), 
+                     select = c(RegionName, state, 
+                                Metro, monthyear, price)) 
+```
+ggplot to show Median Housing Prices trend from 1996 through 2016. Median Housing Prices across all cities have similar trend of increasing prices over the period of years. Peak of housing prices was in 2006-2007 where theres a spike in prices uniformly across all the 4 cities. And following that the house prices were on a sharp decline - indicating the market crash that hit the United States. Housing markets have had a steady increase since 2012 where there's been a little price drop again in 2015 uniformaly, again, across all the cities. SFO has the highest expensive housing market and Chicago has the lowest while comparing these 4cities together.
+```{r}
+ggplot(aes(x = monthyear, y = price), data = subset(mediansold.cities, !is.na(price))) +
+      ggtitle("Median Housing Prices across Top Cities") +
+      geom_line(aes(color = Metro), stat = 'summary', fun.y = median) + xlab('year') + ylab('Median Price') 
+```
+
+II. LINEAR REGRESSION MODELING for Analyzing Housing Data 
+```{r}
+house = read.table("http://www.rossmanchance.com/iscam2/data/housing.txt", header = T, 
+                   sep = "\t")
+attach(house)
+names(house)
+```
+IDEAS:
+#   1. Understand how to run a regression with multiple variables 
+#   2. Understand how to predict best model 
+
+# Run linear model trying to Predict Price 
+# The p-values for both explanatory variables (sqft and bedrooms) are significant. Sqft seems more significant, 
+# and the first model has a higher R Squared - a higher proportion of the variability in price is explained 
+# by sqft (42.07%) compared to number of bedrooms (8.08%).
+```{r}
+summary(lm(price ~ sqft))
+summary(lm(price ~ bedrooms))
+```
+
+# For both of the plots, it seems like the residuals have higher variability for positive residuals. 
+# Variability of the residuals increases for larger fitted observations. 
+Price Price using Sqft as the predictor variable and Predicting Price using Bedroom variable
+```{r}
+plot(lm(price ~ sqft)$fitted, lm(price ~ sqft)$resid, xlab = "fitted w sqft", ylab = "residual", pch = 18)
+abline(h = 0)
+plot(lm(price ~ bedrooms)$fitted, lm(price ~ bedrooms)$resid, xlab = "fitted w bed", ylab = "residual", pch = 18)
+abline(h = 0)
+```
+# A natural log transformation should fix both of these problems.
+```{r}
+
+plot(lm(log(price) ~ sqft)$fitted, lm(log(price) ~ sqft)$resid,  xlab = "fitted w sqft", 
+     ylab = "residual for ln", pch = 18)
+abline(h = 0)
+
+plot(lm(log(price) ~ bedrooms)$fitted, lm(log(price) ~ bedrooms)$resid,  xlab = "fittedual w bed", 
+     ylab = "resid for ln", pch = 18)
+abline(h = 0)
+```
+What happens when we try to predict price (log(price), here) using BOTH sqft and bedrooms?
+```{r}
+summary(lm(log(price) ~ sqft + bedrooms))
+```
+
+# Although the R-Squared value went up (44.84% of variability in log price is explained by sqft and bedrooms), 
+# the p-value on bedrooms isn't significant.
+# Output displays that when we have sqft in the model, we don't need any info on number of bedrooms even though bedrooms was a significant predictor by itself
+
+# The final model will be run on log(price) using only sqft
+```{r}
+summary(lm(log(price) ~ sqft))
+```
+# 95% of homes with 2000 sqft are between $161k and $977k
+```{r}
+plot(sqft, (price), pch = 18)
+sqftlm = lm((price) ~ sqft)
+abline(sqftlm, col = "red")
+newX = seq(min(sqft), max(sqft), 1)
+prd.CI = predict(sqftlm, newdata = data.frame(sqft = newX), interval = "confidence", 
+                 level = 0.95)
+lines(newX, prd.CI[, 2], col = "green", lty = 2)
+lines(newX, prd.CI[, 3], col = "green", lty = 2)
+prd.PI = predict(sqftlm, newdata = data.frame(sqft = newX), interval = "prediction", 
+                 level = 0.95)
+lines(newX, prd.PI[, 2], col = "gray", lty = 3)
+lines(newX, prd.PI[, 3], col = "gray", lty = 3)
+```
+# Using log(price) parameter in LM. 95% of homes with 2000 sqft are between 11.99 log$ and 13.99 log$.
+```{r}
+plot(sqft, log(price), pch = 18)
+sqftlm = lm(log(price) ~ sqft)
+abline(sqftlm, col = "red")
+newX = seq(min(sqft), max(sqft), 1)
+prd.CI = predict(sqftlm, newdata = data.frame(sqft = newX), interval = "confidence", 
+                 level = 0.95)
+lines(newX, prd.CI[, 2], col = "green", lty = 2)
+lines(newX, prd.CI[, 3], col = "green", lty = 2)
+prd.PI = predict(sqftlm, newdata = data.frame(sqft = newX), interval = "prediction", 
+                 level = 0.95)
+lines(newX, prd.PI[, 2], col = "gray", lty = 3)
+lines(newX, prd.PI[, 3], col = "gray", lty = 3)
+```
+
+III. PLOTLY for more Visual Analysis:
+# Using Zip_BuyerSellerIndex.csv and Zip_Sales.csv datasets 
+
+```{r}
+zip_sales <- read.csv('Zip_Sales.csv')
+glimpse(zip_sales)
+```
+# Reshape the data, Adding new column to transform zip with leading zeros 
+```{r}
+library(stringr)
+zipsales <- gather(zip_sales, monthyear, salescount, X2008.06:X2016.06)
+zipsales$monthyear <- as.Date(as.yearmon(zipsales$monthyear, "X%Y.%m"))
+str(zipsales)
+zipsales$zip <- NA
+zipsales$zip <- str_pad(zipsales$RegionName, 5, pad = "0")
+glimpse(zipsales)
+```
+# Loading zipcode package
+```{r}
+data(zipcode)
+glimpse(zipcode)
+```
+# Merging Zipsales and Zipcode dataframes on "zip" to get lat and long values for Zipsales dataset
+# For checking purposes - Checking Dublin, CA zip and lat-long
+```{r}
+zip_df <- left_join(zipsales,zipcode, by = "zip")
+dublin <- filter(zip_df, zip == 94568)
+View(head(dublin))
+```
+# Filtering for CA State - Salescount/ State
+```{r}
+us <- map_data('state')
+ca_df <- filter(zip_df, state == 'CA')
+ggplot(ca_df, aes(longitude,latitude)) + geom_polygon(data=us, aes(x=long,y=lat,group=group), color='blue',fill=NA,alpha=.25) + geom_point(aes(color = salescount),size=1, alpha=.25) + theme_light() + xlim(-130,-100) + ylim(30,50)
+
+zip_total_df <- zip_df %>% group_by(StateName) %>% summarise(totalcount = sum(salescount,na.rm = TRUE))
+```
+Using Plotly - Highest housing sales was in Florida with a sales of 3.1mi and California is second highest with a total sales of 2.96mi between 2008-2016. 
+In order to look at total sales from each state, you can hover the mouse around each state - the popup will display State and Total Sales count.
+
+```{r}
+library(plotly)
+zip_total_df$hover <- with(zip_total_df, paste(StateName,'<br>',"Total Sales: ",totalcount))
+# give state boundaries a white border
+l <- list(color = toRGB("white"), width = 2)
+# specify some map projection/options
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showlakes = TRUE,
+  lakecolor = toRGB('white')
+)
+
+pl <- plot_geo(zip_total_df, locationmode = 'USA-states') %>%
+  add_trace(
+    z = ~totalcount, text = ~hover, locations = ~StateName,
+    color = ~totalcount, colors = 'Purples'
+  ) %>%
+  colorbar(title = "Housing Sales in USA") %>%
+  layout(
+    title = 'Total Housing Sales in USA 2008-2016',
+    geo = g
+  )
+pl
+```
+# Grouping data by region in the USA - Northeast, Southwest, Midwest, Southwest, West
+```{r}
+northeast <- filter(city_buyersellerindex, State %in% c('ME', 'MA', 'RI','CT', 'NH','VT','NY', 'PA','NJ','DE','MD'))
+southeast <- filter(city_buyersellerindex, State %in% c('WV','VA','KY', 'TN','NC', 'SC', 'GA', 'AL', 'MS', 'AK', 'LA', 'FL'))
+midwest <- filter(city_buyersellerindex, State %in% c('OH', 'IN', 'MI', 'IL', 'MO', 'WI', 'MN', 'IA', 'NE', 'SD', 'ND'))
+southwest <- filter(city_buyersellerindex, State %in% c('TX', 'AZ', 'OK', 'NM'))
+west <-  filter(city_buyersellerindex, State %in% c('CO', 'WY', 'MT', 'ID', 'WA', 'OR', 'UT', 'NV', 'CA', 'AK', 'HI'))
+
+```
+# Additional Plotly's on different regions of USA for analyzing different variables = percent price cut, days on market and buyersellerindex
+Northeast - The avg. price cut is around 12% in Northeast. The lowest price cut is in NH and highest in Delaware.
+West - The lowest number of days on market is in Washington state and highest is in Oregon. 
+Midwest - The Buyer Seller Index avg is at 5.1 which indicates a stable buyer-seller market in the Midwest.
+You can hover your mouse over the box plots to get a display of min, median and max values in each bracket of data.
+
+```{r}
+pl2 <- plot_ly(northeast, x = ~PctPriceCut, color = ~State, type = "box")
+pl3 <- plot_ly(west, x = ~DaysOnMarket, color = ~State, type = "box")
+pl4 <- plot_ly(midwest, x = ~BuyerSellerIndex, color = ~State, type = "box")
+pl2
+pl3
+pl4
+  
+```
+
+
+
+
+
+
+
